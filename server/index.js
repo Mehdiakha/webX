@@ -548,6 +548,7 @@ function injectBadgeRemovalScript(html) {
 }
 
 async function removeWatermarks(exportDir, platform) {
+  const isFramer = platform === 'framer';
   const selectors = [
     ...WATERMARK_SELECTORS,
     ...(PLATFORM_WATERMARK_SELECTORS[platform] || [])
@@ -558,47 +559,48 @@ async function removeWatermarks(exportDir, platform) {
   for (const file of htmlFiles) {
     let html = fs.readFileSync(file, 'utf8');
 
-    for (const selector of selectors) {
-      const cleanSelector = selector.replace(/\[|\]|\*/g, '');
-      const classMatch = cleanSelector.match(/class\*="([^"]+)"/);
-      const attrMatch = cleanSelector.match(/\[([^\]]+)\]/);
+    if (!isFramer) {
+      for (const selector of selectors) {
+        const cleanSelector = selector.replace(/\[|\]|\*/g, '');
+        const classMatch = cleanSelector.match(/class\*="([^"]+)"/);
+        const attrMatch = cleanSelector.match(/\[([^\]]+)\]/);
 
-      if (classMatch) {
-        const className = classMatch[1];
-        const pattern = new RegExp(`<[^>]*(?:class=["'][^"']*${className}[^"']*["')])[^>]*>[\\s\\S]*?<\\/[^>]+>`, 'gi');
-        html = html.replace(pattern, '');
+        if (classMatch) {
+          const className = classMatch[1];
+          const pattern = new RegExp(`<[^>]*(?:class=["'][^"']*${className}[^"']*["')])[^>]*>[\\s\\S]*?<\/[^>]+>`, 'gi');
+          html = html.replace(pattern, '');
 
-        const selfClosing = new RegExp(`<[^>]*(?:class=["'][^"']*${className}[^"']*["')])[^>]*/?>`, 'gi');
-        html = html.replace(selfClosing, '');
+          const selfClosing = new RegExp(`<[^>]*(?:class=["'][^"']*${className}[^"']*["')])[^>]*/?>`, 'gi');
+          html = html.replace(selfClosing, '');
+        }
+
+        if (attrMatch) {
+          const attr = attrMatch[1];
+          const pattern = new RegExp(`<[^>]*${attr}[^>]*>[\\s\\S]*?<\/[^>]+>`, 'gi');
+          html = html.replace(pattern, '');
+        }
       }
 
-      if (attrMatch) {
-        const attr = attrMatch[1];
-        const pattern = new RegExp(`<[^>]*${attr}[^>]*>[\\s\\S]*?<\\/[^>]+>`, 'gi');
+      const footerPatterns = [
+        /<footer[^>]*>[\s\S]*?<\/footer>/gi,
+        /<div[^>]*class=["'][^"']*footer[^"']*["'][^>]*>[\s\S]*?<\/div>/gi,
+        /<a[^>]*href=["'][^"']*(?:framer\.com|webflow\.io|wix\.com|squarespace\.com|shopify\.com)[^"']*["'][^>]*>[\s\S]*?<\/a>/gi
+      ];
+
+      for (const pattern of footerPatterns) {
         html = html.replace(pattern, '');
       }
-    }
 
-    const footerPatterns = [
-      /<footer[^>]*>[\s\S]*?<\/footer>/gi,
-      /<div[^>]*class=["'][^"']*footer[^"']*["'][^>]*>[\s\S]*?<\/div>/gi,
-      /<a[^>]*href=["'][^"']*(?:framer\.com|webflow\.io|wix\.com|squarespace\.com|shopify\.com)[^"']*["'][^>]*>[\s\S]*?<\/a>/gi
-    ];
+      html = html.replace(/<script[^>]*framer[^>]*>[\s\S]*?<\/script>/gi, '');
+      html = html.replace(/<script[^>]*webflow[^>]*>[\s\S]*?<\/script>/gi, '');
+      html = html.replace(/<link[^>]*(?:framer|webflow)[^>]*>/gi, '');
+      html = html.replace(/<meta[^>]*content=["'][^"']*(?:framer|webflow)[^"']*["'][^>]*>/gi, '');
+      html = html.replace(/<link[^>]*href=["'][^"']*framer[^"']*["'][^>]*>/gi, '');
+      html = html.replace(/<style[^>]*data-framer-css-ssr-minified[^>]*>[\s\S]*?<\/style>/gi, (match) => match);
 
-    for (const pattern of footerPatterns) {
-      html = html.replace(pattern, '');
-    }
+      html = injectBadgeRemovalScript(html);
 
-    html = html.replace(/<script[^>]*framer[^>]*>[\s\S]*?<\/script>/gi, '');
-    html = html.replace(/<script[^>]*webflow[^>]*>[\s\S]*?<\/script>/gi, '');
-    html = html.replace(/<link[^>]*(?:framer|webflow)[^>]*>/gi, '');
-    html = html.replace(/<meta[^>]*content=["'][^"']*(?:framer|webflow)[^"']*["'][^>]*>/gi, '');
-    html = html.replace(/<link[^>]*href=["'][^"']*framer[^"']*["'][^>]*>/gi, '');
-    html = html.replace(/<style[^>]*data-framer-css-ssr-minified[^>]*>[\s\S]*?<\/style>/gi, (match) => match);
-
-    html = injectBadgeRemovalScript(html);
-
-    const cssRemoval = `
+      const cssRemoval = `
 <style>
 /* Builder watermarks removed */
 [class*="framer"]:not(html):not(body),
@@ -622,8 +624,9 @@ a[href*="webflow"]:not([href^="http"]) {
 }
 </style>`;
 
-    if (html.includes('</head>')) {
-      html = html.replace('</head>', cssRemoval + '\n</head>');
+      if (html.includes('</head>')) {
+        html = html.replace('</head>', cssRemoval + '\n</head>');
+      }
     }
 
     fs.writeFileSync(file, html, 'utf8');
