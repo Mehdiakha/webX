@@ -68,7 +68,7 @@ const DEFAULT_EXPORT_OPTIONS = {
   cssFolderName: 'css',
   exportJs: true,
   jsFolderName: 'js',
-  exportImages: false,
+  exportImages: true,
   exportAllPages: false,
   removeWatermarks: true,
   htmlExtension: false,
@@ -148,14 +148,14 @@ async function scrapeWebsite(url, exportDir, updateProgress, options) {
     
     await processHtmlFiles(exportDir, tempDir, filePlan, optionsConfig);
     
-    if (optionsConfig.removeWatermarks !== false) {
+    if (optionsConfig.platform !== 'framer' && optionsConfig.removeWatermarks !== false) {
       updateProgress(80, 'Removing watermarks...');
       await removeWatermarks(exportDir, optionsConfig.platform);
     }
     
     updateProgress(90, 'Adding animation support...');
     
-    if (optionsConfig.preserveAnimations !== false) {
+    if (optionsConfig.platform !== 'framer' && optionsConfig.preserveAnimations !== false) {
       await ensureAnimationsWork(exportDir);
     }
     

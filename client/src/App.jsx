@@ -15,7 +15,7 @@ const createDefaultOptions = () => ({
   cssFolderName: 'css',
   exportJs: true,
   jsFolderName: 'js',
-  exportImages: false,
+  exportImages: true,
   exportAllPages: false,
   removeWatermarks: true,
   htmlExtension: false,
