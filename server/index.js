@@ -12,7 +12,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 8080;
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -23,6 +23,40 @@ if (!fs.existsSync(exportsDir)) {
 }
 
 const exports = new Map();
+const cleanupTimers = new Map();
+const EXPORT_TTL_MS = 15 * 60 * 1000;
+
+function clearCleanupTimer(exportId) {
+  const timer = cleanupTimers.get(exportId);
+  if (timer) {
+    clearTimeout(timer);
+    cleanupTimers.delete(exportId);
+  }
+}
+
+function cleanupExport(exportId) {
+  clearCleanupTimer(exportId);
+
+  const zipPath = path.join(exportsDir, `${exportId}.zip`);
+  if (fs.existsSync(zipPath)) {
+    try {
+      fs.unlinkSync(zipPath);
+    } catch (error) {
+      console.error(`Failed to remove export zip for ${exportId}:`, error.message);
+    }
+  }
+
+  exports.delete(exportId);
+}
+
+function scheduleExportCleanup(exportId) {
+  clearCleanupTimer(exportId);
+  const timer = setTimeout(() => {
+    cleanupExport(exportId);
+  }, EXPORT_TTL_MS);
+
+  cleanupTimers.set(exportId, timer);
+}
 
 const DEFAULT_EXPORT_OPTIONS = {
   platform: 'webflow',
@@ -104,7 +138,7 @@ async function scrapeWebsite(url, exportDir, updateProgress, options) {
     
     updateProgress(50, 'Organizing files...');
     
-    const filePlan = await organizeFiles(tempDir, exportDir, optionsConfig);
+    const { filePlan } = await organizeFiles(tempDir, exportDir, optionsConfig);
     
     updateProgress(70, 'Processing HTML...');
     
@@ -737,7 +771,14 @@ async function exportWebsite(url, exportId, updateProgress, options) {
     
     const browser = await puppeteer.launch({
       headless: 'new',
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
+      timeout: 90000,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--single-process'
+      ]
     });
 
     try {
@@ -840,6 +881,7 @@ app.post('/api/export', async (req, res) => {
       data.fileSize = result.fileSize;
       data.meta = result.meta;
       exports.set(exportId, data);
+      scheduleExportCleanup(exportId);
     }
   }).catch(error => {
     const data = exports.get(exportId);
@@ -872,9 +914,16 @@ app.get('/api/download/:id', (req, res) => {
     return res.status(404).json({ error: 'Export not found' });
   }
 
-  res.download(zipPath, 'website-export.zip');
+  res.download(zipPath, 'website-export.zip', (error) => {
+    if (error) {
+      console.error(`Download failed for ${id}:`, error.message);
+      return;
+    }
+
+    cleanupExport(id);
+  });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on port ${PORT}`);
 });
